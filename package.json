@@ -1,0 +1,27 @@
+{
+  "dependencies": {
+    "three": "^0.158.0"
+  },
+  "devDependencies": {
+    "vite": "^7.2.2"
+  },
+  "name": "gaode3dmap",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaoguaishou0202yy/gaode3dmap.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/xiaoguaishou0202yy/gaode3dmap/issues"
+  },
+  "homepage": "https://github.com/xiaoguaishou0202yy/gaode3dmap#readme"
+}
