@@ -23,9 +23,20 @@
     </div>
   </div>
   
-  <script language="javascript" src="//webapi.amap.com/maps?v=2.0&key=6c87eb0dbc7b4548f6251ce8f101c673&plugin=AMap.ControlBar,AMap.ToolBar"></script>
   <script src="js/config.js"></script>
-  <script src="js/main.js"></script>
+  <script>
+    (function() {
+      const script = document.createElement('script');
+      script.src = `//webapi.amap.com/maps?v=2.0&key=${CONFIG.API_KEY}&plugin=AMap.ControlBar,AMap.ToolBar`;
+      script.onload = function() {
+        // API 加载完成后再加载 main.js
+        const mainScript = document.createElement('script');
+        mainScript.src = 'js/main.js';
+        document.body.appendChild(mainScript);
+      };
+      document.head.appendChild(script);
+    })();
+  </script>
 
 </body>
 </html>
