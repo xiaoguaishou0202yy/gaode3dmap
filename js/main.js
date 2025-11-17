@@ -102,6 +102,8 @@ class SimpleMap3D {
                 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
                 directionalLight.position.set(10, 10, 10);
                 self.scene.add(directionalLight);
+
+                self.modelLngLat = self.userLocation;
                 
                 // 加载角色模型
                 self.loadCharacterModel();
@@ -112,9 +114,35 @@ class SimpleMap3D {
                 // 更新角色位置
                 self.updateCharacterPosition();
                 
-                // 相机位置固定，不随缩放变化
-                self.camera.position.set(0, 0, 100);
-                self.camera.lookAt(0, 0, 0);
+                // 获取地图的旋转角度和俯仰角
+                const rotation = self.map.getRotation(); // 地图旋转角度（度）
+                const pitch = self.map.getPitch(); // 地图俯仰角（度）
+                
+                // 转换为弧度
+                const rotationRad = rotation * Math.PI / 180;
+                const pitchRad = pitch * Math.PI / 180;
+                
+                // 相机距离和高度
+                const cameraDistance = 30; // 相机距离角色的距离
+                const cameraHeight = 20;   // 相机的高度偏移
+                
+                // 计算相机位置（在角色后方）
+                // 考虑地图旋转，相机需要绕Z轴旋转
+                const camX = self.gltfObj.position.x - Math.sin(rotationRad) * cameraDistance * Math.cos(pitchRad);
+                const camY = self.gltfObj.position.y - Math.cos(rotationRad) * cameraDistance * Math.cos(pitchRad);
+                const camZ = self.gltfObj.position.z + cameraHeight + Math.sin(pitchRad) * cameraDistance;
+                
+                self.camera.position.set(camX, camY, camZ);
+                
+                // 相机始终看向角色
+                self.camera.lookAt(
+                    self.gltfObj.position.x,
+                    self.gltfObj.position.y,
+                    self.gltfObj.position.z + 10  // 看向角色的头部位置
+                );
+                
+                // 同步角色模型的旋转方向
+                self.gltfObj.rotation.z = -rotationRad; // 让角色朝向与地图方向一致
                 
                 // 渲染场景
                 self.renderer.resetState();
@@ -133,8 +161,9 @@ class SimpleMap3D {
             'assets/Xbot.glb',
             (gltf) => {
                 this.gltfObj = gltf.scene;
-                this.gltfObj.scale.set(10, 10, 10);
+                // 初始位置设为原点，后续在render中更新
                 this.gltfObj.position.set(0, 0, 5);
+                this.gltfObj.scale.set(2, 2, 2);
                 this.scene.add(this.gltfObj);
                 console.log('角色模型加载成功');
             },
@@ -147,47 +176,40 @@ class SimpleMap3D {
         );
     }
 
-    // 更新角色位置到用户位置
     updateCharacterPosition() {
-        if (!this.gltfObj || !this.userLocation) return;
+        if (!this.gltfObj || !this.modelLngLat) return;
         
-        // 获取当前地图状态
+        // 获取当前地图中心和缩放
         const center = this.map.getCenter();
         const zoom = this.map.getZoom();
         
-        // 计算用户位置和地图中心在像素坐标系中的位置
-        const userPixel = this.map.lngLatToContainer(this.userLocation);
-        const centerPixel = this.map.lngLatToContainer([center.lng, center.lat]);
+        // 计算模型经纬度相对于地图中心的偏移（度）
+        const lngOffset = this.modelLngLat[0] - center.lng;
+        const latOffset = this.modelLngLat[1] - center.lat;
         
-        // 计算相对偏移（像素）
-        const pixelOffsetX = userPixel.x - centerPixel.x;
-        const pixelOffsetY = userPixel.y - centerPixel.y;
+        // 转换为米（墨卡托投影）
+        const R = 6378137; // 地球半径（米）
+        const centerLatRad = center.lat * Math.PI / 180;
         
-        // 将像素偏移转换为固定的世界坐标偏移
-        // 使用与缩放级别无关的固定转换因子
-        const worldScale = 0.0005; // 调整这个值来改变灵敏度
+        // 经度偏移转米（考虑纬度影响）
+        const xMeters = lngOffset * Math.PI / 180 * R * Math.cos(centerLatRad);
+        // 纬度偏移转米
+        const yMeters = latOffset * Math.PI / 180 * R;
         
-        // 设置模型位置
-        this.gltfObj.position.set(
-            pixelOffsetX * worldScale,
-            -pixelOffsetY * worldScale, // Y轴取反
-            5
+        // 设置模型位置（GLCustomLayer的单位是米）
+        this.gltfObj.position.set(xMeters, yMeters, 5);
+        
+        // 根据缩放级别调整模型大小
+        const baseZoom = 18;
+        const baseScale = 3;
+        const scaleFactor = Math.pow(1.3, zoom - baseZoom);
+        
+        this.gltfObj.scale.set(
+            baseScale * scaleFactor,
+            baseScale * scaleFactor,
+            baseScale * scaleFactor
         );
-        
-        // 模型大小随缩放变化
-        const baseZoom = 17;
-        const scale = Math.pow(1.5, zoom - baseZoom);
-        this.gltfObj.scale.set(10 * scale, 10 * scale, 10 * scale);
-        
-        // 添加调试信息
-        if (window.debugMode) {
-            console.log('用户位置:', this.userLocation);
-            console.log('像素偏移:', {x: pixelOffsetX, y: pixelOffsetY});
-            console.log('模型位置:', this.gltfObj.position);
-        }
     }
-
-
 }
 
 // 页面加载完成后初始化应用
