@@ -64,7 +64,6 @@ class SimpleMap3D {
         });
     }
 
-    // 创建 Three.js 自定义图层
     createThreeLayer() {
         const self = this;
         
@@ -85,21 +84,31 @@ class SimpleMap3D {
                 self.renderer = new THREE.WebGLRenderer({
                     context: gl,
                     alpha: true,
-                    antialias: true,
-                    precision: 'mediump'
+                    antialias: false,
+                    precision: 'mediump',
+                    powerPreference: 'high-performance', // 添加性能优化
+                    preserveDrawingBuffer: false, // 避免缓冲区冲突
+                    willReadFrequently: false
                 });
+                
+                // 重要：不要让 Three.js 自动清除状态
                 self.renderer.autoClear = false;
-
+                self.renderer.autoClearDepth = false;
+                self.renderer.autoClearColor = false;
+                self.renderer.autoClearStencil = false;
+                
+                // 保存 gl 上下文引用
+                self.gl = gl;
 
                 // 添加坐标轴辅助器（调试用）
-                const axesHelper = new THREE.AxesHelper(50);
-                self.scene.add(axesHelper);
+                self.axesHelper = new THREE.AxesHelper(50);
+                self.scene.add(self.axesHelper);
 
                 // 光源
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+                const ambientLight = new THREE.AmbientLight(0xffffff, 4);
                 self.scene.add(ambientLight);
                 
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
                 directionalLight.position.set(10, 10, 10);
                 self.scene.add(directionalLight);
 
@@ -109,63 +118,125 @@ class SimpleMap3D {
                 self.loadCharacterModel();
             },
             render: () => {
-                if (!self.gltfObj) return;
+                if (!self.gltfObj || !self.modelLngLat) return;
                 
-                // 更新角色位置
-                self.updateCharacterPosition();
+                const gl = self.gl;
                 
-                // 获取地图的旋转角度和俯仰角
-                const rotation = self.map.getRotation(); // 地图旋转角度（度）
-                const pitch = self.map.getPitch(); // 地图俯仰角（度）
-                
-                // 转换为弧度
-                const rotationRad = rotation * Math.PI / 180;
-                const pitchRad = pitch * Math.PI / 180;
-                
-                // 相机距离和高度
-                const cameraDistance = 30; // 相机距离角色的距离
-                const cameraHeight = 20;   // 相机的高度偏移
-                
-                // 计算相机位置（在角色后方）
-                // 考虑地图旋转，相机需要绕Z轴旋转
-                const camX = self.gltfObj.position.x - Math.sin(rotationRad) * cameraDistance * Math.cos(pitchRad);
-                const camY = self.gltfObj.position.y - Math.cos(rotationRad) * cameraDistance * Math.cos(pitchRad);
-                const camZ = self.gltfObj.position.z + cameraHeight + Math.sin(pitchRad) * cameraDistance;
-                
-                self.camera.position.set(camX, camY, camZ);
-                
-                // 相机始终看向角色
-                self.camera.lookAt(
-                    self.gltfObj.position.x,
-                    self.gltfObj.position.y,
-                    self.gltfObj.position.z + 10  // 看向角色的头部位置
-                );
-                
-                // 同步角色模型的旋转方向
-                self.gltfObj.rotation.z = -rotationRad; // 让角色朝向与地图方向一致
-                
-                // 渲染场景
-                self.renderer.resetState();
-                self.renderer.render(self.scene, self.camera);
+                try {
+                    // 修复2：简化状态管理，避免复杂的WebGL状态保存/恢复
+                    
+                    // 重置 Three.js 的 WebGL 状态
+                    self.renderer.resetState();
+                    
+                    // 设置必要的 WebGL 状态
+                    gl.enable(gl.DEPTH_TEST);
+                    gl.depthFunc(gl.LEQUAL);
+                    
+                    // 位置计算代码保持不变...
+                    const center = self.map.getCenter();
+                    const centerLng = center.lng;
+                    const centerLat = center.lat;
+                    const modelLng = self.modelLngLat[0];
+                    const modelLat = self.modelLngLat[1];
+                    
+                    const EARTH_RADIUS = 6378137;
+                    const dLng = (modelLng - centerLng) * Math.PI / 180;
+                    const avgLat = (centerLat + modelLat) / 2 * Math.PI / 180;
+                    const x = dLng * EARTH_RADIUS * Math.cos(avgLat);
+                    const dLat = (modelLat - centerLat) * Math.PI / 180;
+                    const y = dLat * EARTH_RADIUS;
+                    
+                    self.gltfObj.position.set(x, y, 0);
+                    
+                    if (self.axesHelper) {
+                        self.axesHelper.position.set(x, y, 0);
+                    }
+                    
+                    const zoom = self.map.getZoom();
+                    const baseZoom = 18;
+                    const baseScale = 0.2;
+                    const scaleFactor = Math.pow(1.3, zoom - baseZoom);
+                    
+                    self.gltfObj.scale.set(
+                        baseScale * scaleFactor,
+                        baseScale * scaleFactor,
+                        baseScale * scaleFactor
+                    );
+                    
+                    if (self.axesHelper) {
+                        const axesScale = 10 * scaleFactor;
+                        self.axesHelper.scale.set(axesScale, axesScale, axesScale);
+                    }
+                    
+                    const rotation = self.map.getRotation();
+                    const pitch = self.map.getPitch();
+                    const rotationRad = rotation * Math.PI / 180;
+                    const pitchRad = pitch * Math.PI / 180;
+                    
+                    const cameraDistance = 30;
+                    const cameraHeight = 20;
+                    const camX = self.gltfObj.position.x - Math.sin(rotationRad) * cameraDistance * Math.cos(pitchRad);
+                    const camY = self.gltfObj.position.y - Math.cos(rotationRad) * cameraDistance * Math.cos(pitchRad);
+                    const camZ = self.gltfObj.position.z + cameraHeight + Math.sin(pitchRad) * cameraDistance;
+                    
+                    self.camera.position.set(camX, camY, camZ);
+                    
+                    const upX = Math.sin(rotationRad) * Math.sin(pitchRad);
+                    const upY = Math.cos(rotationRad) * Math.sin(pitchRad);
+                    const upZ = Math.cos(pitchRad);
+                    self.camera.up.set(upX, upY, upZ);
+                    
+                    self.camera.lookAt(
+                        self.gltfObj.position.x,
+                        self.gltfObj.position.y,
+                        self.gltfObj.position.z + 10
+                    );
+                    
+                    gl.disable(gl.BLEND); // 如果不使用透明，禁用混合
+                    // 渲染场景
+                    self.renderer.render(self.scene, self.camera);
+                    
+                } catch (error) {
+                    console.error('Three.js渲染错误:', error);
+                }
             }
         });
         
         this.map.add(this.customLayer);
     }
 
-    // 加载角色模型
     loadCharacterModel() {
         const loader = new GLTFLoader();
         
         loader.load(
-            'assets/Xbot.glb',
+            'assets/cartoon_car.glb',
             (gltf) => {
                 this.gltfObj = gltf.scene;
-                // 初始位置设为原点，后续在render中更新
-                this.gltfObj.position.set(0, 0, 5);
-                this.gltfObj.scale.set(2, 2, 2);
+
+                this.gltfObj.traverse((child) => {
+                    if (child.isMesh) {
+                        // 确保几何体正确上传到GPU
+                        child.geometry.computeVertexNormals();
+                        
+                        // 优化材质
+                        if (child.material) {
+                            child.material.precision = 'mediump';
+                            child.material.needsUpdate = false;
+                        }
+
+                        child.castShadow = false;
+                        child.receiveShadow = false;
+                    }
+                });
+                
+                this.gltfObj.position.set(0, 0, 0);  // 初识位置设为原点
+                this.gltfObj.scale.set(0.1, 0.1, 0.1);  // 初始大小
                 this.scene.add(this.gltfObj);
                 console.log('角色模型加载成功');
+
+                if (window.gc) {
+                    setTimeout(() => window.gc(), 1000);
+                }
             },
             (progress) => {
                 console.log('加载进度:', (progress.loaded / progress.total * 100) + '%');
@@ -176,40 +247,7 @@ class SimpleMap3D {
         );
     }
 
-    updateCharacterPosition() {
-        if (!this.gltfObj || !this.modelLngLat) return;
-        
-        // 获取当前地图中心和缩放
-        const center = this.map.getCenter();
-        const zoom = this.map.getZoom();
-        
-        // 计算模型经纬度相对于地图中心的偏移（度）
-        const lngOffset = this.modelLngLat[0] - center.lng;
-        const latOffset = this.modelLngLat[1] - center.lat;
-        
-        // 转换为米（墨卡托投影）
-        const R = 6378137; // 地球半径（米）
-        const centerLatRad = center.lat * Math.PI / 180;
-        
-        // 经度偏移转米（考虑纬度影响）
-        const xMeters = lngOffset * Math.PI / 180 * R * Math.cos(centerLatRad);
-        // 纬度偏移转米
-        const yMeters = latOffset * Math.PI / 180 * R;
-        
-        // 设置模型位置（GLCustomLayer的单位是米）
-        this.gltfObj.position.set(xMeters, yMeters, 5);
-        
-        // 根据缩放级别调整模型大小
-        const baseZoom = 18;
-        const baseScale = 3;
-        const scaleFactor = Math.pow(1.3, zoom - baseZoom);
-        
-        this.gltfObj.scale.set(
-            baseScale * scaleFactor,
-            baseScale * scaleFactor,
-            baseScale * scaleFactor
-        );
-    }
+
 }
 
 // 页面加载完成后初始化应用
